@@ -61,6 +61,11 @@ import argparse
 
 from google import genai
 
+
+# Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
+with open(os.path.expanduser("~/.ssh/gemini_api_key.txt")) as f:
+    os.environ["GOOGLE_API_KEY"] = f.read().strip()
+
 if sys.version_info < (3, 11, 0):
     import taskgroup, exceptiongroup
 
@@ -79,7 +84,7 @@ DEFAULT_MODE = "camera"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-CONFIG = {"generation_config": {"response_modalities": ["AUDIO"]}}
+CONFIG = {"generation_config": {"response_modalities": ["AUDIO", "TEXT"]}}
 
 pya = pyaudio.PyAudio()
 
@@ -103,7 +108,7 @@ class AudioLoop:
                 input,
                 "message > ",
             )
-            if text.lower() == "q":
+            if text.lower() == "q" or text.lower() in ["quit", "exit"]:
                 break
             await self.session.send(input=text or ".", end_of_turn=True)
 
@@ -162,7 +167,7 @@ class AudioLoop:
         image_io.seek(0)
 
         image_bytes = image_io.read()
-        print(f"Processed screen frame: {len(image_bytes)} bytes")
+        # print(f"Processed screen frame: {len(image_bytes)} bytes")
 
         # Save image bytes to "screen.jpg"
         with open("screen.jpg", "wb") as f:
@@ -184,7 +189,7 @@ class AudioLoop:
     async def send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            print(f"Sending frame: {len(msg['data'])} bytes with mime type {msg['mime_type']}")
+            # print(f"Sending frame: {len(msg['data'])} bytes with mime type {msg['mime_type']}")
             await self.session.send(input=msg)
 
     async def listen_audio(self):
@@ -204,7 +209,7 @@ class AudioLoop:
             kwargs = {}
         while True:
             data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-            # await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+            await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"

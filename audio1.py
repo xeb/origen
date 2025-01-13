@@ -11,8 +11,8 @@ from google import genai
 from google import genai
 from google.genai import types
 import contextlib
-# from playsound import playsound
-import winsound
+#from playsound import playsound
+#import winsound
 
 async def async_enumerate(it):
   n = 0
@@ -58,8 +58,9 @@ async def main():
                             print('.', end='')
 
             print("Playing...")
-            # playsound(file_name)
-            winsound.PlaySound(file_name, winsound.SND_FILENAME)
+            #playsound(file_name)
+            #winsound.PlaySound(file_name, winsound.SND_FILENAME)
+            os.system(f"afplay {file_name}")
 
 if __name__ == "__main__":
     asyncio.run(main())
