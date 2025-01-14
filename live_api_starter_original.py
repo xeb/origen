@@ -60,7 +60,7 @@ import mss
 import argparse
 
 from google import genai
-
+from google.genai import types
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
 with open(os.path.expanduser("~/.ssh/gemini_api_key.txt")) as f:
@@ -80,12 +80,69 @@ CHUNK_SIZE = 1024
 
 MODEL = "models/gemini-2.0-flash-exp"
 
-DEFAULT_MODE = "none"
+DEFAULT_MODE = "camera"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-# CONFIG = {"generation_config": {"response_modalities": ["AUDIO", "TEXT"]}}
-CONFIG = {"generation_config": {"response_modalities": ["AUDIO"]}}
+function = dict(
+    name="get_current_weather",
+    description="Get the current weather in a given location",
+    parameters={
+      "type": "OBJECT",
+      "properties": {
+          "location": {
+              "type": "STRING",
+              "description": "The city and state, e.g. San Francisco, CA",
+          },
+      },
+      "required": ["location"],
+    }
+)
+
+function2 = [
+  {
+    "name": "move_arm",
+    "description": "Moves the robot arm to the associated coordinates",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    }
+  }
+]
+
+tool = types.Tool(function_declarations=[function])
+
+class ToolWrapper():
+    def __init__(self, function_def):
+        self.function_def = function_def
+
+    @property
+    def function_declarations(self):
+        return self.function_def
+
+# CONFIG = types.GenerateContentConfig(tools=[tool], response_modalities=["TEXT"])
+CONFIG = {
+    "generation_config": {
+        "response_modalities": ["TEXT"],
+        "tools": [ ToolWrapper(function2)  ], # This works (but is hacky)
+        # "tools": [ tool ], # This errors with TypeError: Object of type Schema is not JSON serializable
+        "system_instruction":
+          [
+            "You are a helpful Weather AI.",
+            "Your mission is to see what the Current Weather is OR say something to the user if in doubt."
+          ],
+    }
+}
 
 pya = pyaudio.PyAudio()
 
@@ -102,8 +159,6 @@ class AudioLoop:
         self.send_text_task = None
         self.receive_audio_task = None
         self.play_audio_task = None
-        self.text_buffer = []  # Buffer to accumulate text responses
-        self.audio_stream = None
 
     async def send_text(self):
         while True:
@@ -111,7 +166,7 @@ class AudioLoop:
                 input,
                 "message > ",
             )
-            if text.lower() == "q" or text.lower() in ["quit", "exit"]:
+            if text.lower() == "q":
                 break
             await self.session.send(input=text or ".", end_of_turn=True)
 
@@ -170,12 +225,6 @@ class AudioLoop:
         image_io.seek(0)
 
         image_bytes = image_io.read()
-        # print(f"Processed screen frame: {len(image_bytes)} bytes")
-
-        # Save image bytes to "screen.jpg"
-        with open("screen.jpg", "wb") as f:
-            f.write(image_bytes)
-
         return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
 
     async def get_screen(self):
@@ -192,7 +241,6 @@ class AudioLoop:
     async def send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            # print(f"Sending frame: {len(msg['data'])} bytes with mime type {msg['mime_type']}")
             await self.session.send(input=msg)
 
     async def listen_audio(self):
@@ -215,23 +263,30 @@ class AudioLoop:
             await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
 
     async def receive_audio(self):
-        "Background task to read from the websocket and write pcm chunks to the output queue"
+        "Background task to reads from the websocket and write pcm chunks to the output queue"
         while True:
             turn = self.session.receive()
             async for response in turn:
                 if data := response.data:
                     self.audio_in_queue.put_nowait(data)
-                if text := response.text:
-                    # Accumulate text in buffer and print when complete
-                    self.text_buffer.append(text)
-                    print(text, end="", flush=True)
+                    continue
+                elif text := response.text:
+                    print(text, end="")
+                elif ( response.server_content 
+                      and response.server_content.model_turn 
+                      and response.server_content.model_turn.parts 
+                    ): # could be cleaner!
+                    code_blocks = []
+                    for part in response.server_content.model_turn.parts:
+                        code_blocks.append(part.executable_code.code)
+                    print(code_blocks)
+                    # import code
+                    # code.interact(local=locals())
 
-            # Print newline after complete response
-            if self.text_buffer:
-                print()
-                self.text_buffer = []
-
-            # Clear audio queue on interruption
+            # If you interrupt the model, it sends a turn_complete.
+            # For interruptions to work, we need to stop playback.
+            # So empty out the audio queue because it may have loaded
+            # much more audio than has played yet.
             while not self.audio_in_queue.empty():
                 self.audio_in_queue.get_nowait()
 
@@ -275,10 +330,7 @@ class AudioLoop:
         except asyncio.CancelledError:
             pass
         except ExceptionGroup as EG:
-            if self.audio_stream:
-                self.audio_stream.stop_stream()
-                self.audio_stream.close()
-
+            self.audio_stream.close()
             traceback.print_exception(EG)
 
 
@@ -289,7 +341,7 @@ if __name__ == "__main__":
         type=str,
         default=DEFAULT_MODE,
         help="pixels to stream from",
-        choices=["none", "camera", "screen"],
+        choices=["camera", "screen", "none"],
     )
     args = parser.parse_args()
     main = AudioLoop(video_mode=args.mode)
