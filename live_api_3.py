@@ -58,43 +58,33 @@ DEFAULT_MODE = "none"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-function = dict(
-    name="get_current_weather",
-    description="Get the current weather in a given location",
-    parameters={
-      "type": "OBJECT",
-      "properties": {
-          "location": {
-              "type": "STRING",
-              "description": "The city and state, e.g. San Francisco, CA",
-          },
-      },
-      "required": ["location"],
-    }
-)
+function = types.FunctionDeclaration(
+      name="get_current_weather",
+      description="Get the current weather in a given location",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "location": types.Schema(
+                type="STRING",
+                description="The city and state, e.g. San Francisco, CA",
+                ),
+        },
+        required=["location"],),
+    )
+
 
 tool = types.Tool(function_declarations=[function])
 
-class ToolWrapper():
-    def __init__(self, functions_def):
-        self.functions_def = functions_def
-
-    @property
-    def function_declarations(self):
-        return self.functions_def
-
-CONFIG = {
-    "generation_config": {
-        "response_modalities": ["TEXT"],
-        "tools": [ ToolWrapper([function])  ], # This works (but is hacky)
-        # "tools": [ tool ], # This errors with TypeError: Object of type Schema is not JSON serializable
-        "system_instruction":
-          [
-            "You are a helpful Weather AI.",
-            "Your mission is to see what the Current Weather is OR say something to the user if in doubt."
-          ],
-    }
-}
+CONFIG = types.LiveConnectConfig(
+    response_modalities=['TEXT'],
+    tools=[tool],
+    system_instruction=types.Content(
+          parts=[
+              types.Part(text="You are a helpful Weather AI."),
+              types.Part(text="Your mission is to see what the Current Weather is OR say something to the user if in doubt.")
+          ]
+    )
+)
 
 pya = pyaudio.PyAudio()
 
