@@ -33,6 +33,7 @@ import argparse
 from google import genai
 from google.genai import types
 import pyttsx3
+from termcolor import colored
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
 with open(os.path.expanduser("~/.ssh/gemini_api_key.txt")) as f:
@@ -57,48 +58,6 @@ DEFAULT_MODE = "none"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-## --------- EXPERIMENTING 
-# SAMPLE TOOL
-# def get_current_weather(location: str,) -> int:
-#   """Returns the current weather.
-
-#   Args:
-#     location: The city and state, e.g. San Francisco, CA
-#   """
-#   return 'sunny'
-
-# def say_to_user(text: str) -> str:
-#     """ When in doubt, responds to the user with the given text """
-#     return None
-
-function = dict(
-    name="get_current_weather",
-    description="Get the current weather in a given location",
-    parameters={
-      "type": "OBJECT",
-      "properties": {
-          "location": {
-              "type": "STRING",
-              "description": "The city and state, e.g. San Francisco, CA",
-          },
-      },
-      "required": ["location"],
-    }
-)
-
-# tool = types.Tool(function_declarations=[function])
-from pydantic import BaseModel
-
-class CountryInfo(BaseModel):
-  name: str
-  population: int
-  capital: str
-  continent: str
-  gdp: int
-  official_language: str
-  total_area_sq_mi: int
-
-#-------------------
 function = dict(
     name="get_current_weather",
     description="Get the current weather in a given location",
@@ -116,58 +75,19 @@ function = dict(
 
 tool = types.Tool(function_declarations=[function])
 
-print(tool)
+class ToolWrapper():
+    def __init__(self, functions_def):
+        self.functions_def = functions_def
 
-# print(json.dumps(tool))
+    @property
+    def function_declarations(self):
+        return self.functions_def
 
-# Update config to include both AUDIO and TEXT modalities
-# CONFIG = {"response_modalities": ["TEXT", "AUDIO"]} # DOES NOT WORK, see: https://github.com/google-gemini/cookbook/issues/386
 CONFIG = {
-    "response_modalities": ["TEXT"],
     "generation_config": {
-        "tools": [ 
-            types.Tool(function_declarations=[function]) 
-        ],
-        # "tools": [
-        #     { "function_declarations": [{
-        #         "name": "get_current_weather",
-        #         "description": "Get the current weather in a given location",
-        #         "parameters": {
-        #             "type": "OBJECT",
-        #             "properties": {
-        #                 "location": {
-        #                     "type": "STRING",
-        #                     "description": "The city and state, e.g. San Francisco, CA",
-        #                 },
-        #             },
-        #             "required": ["location"],
-        #         }
-        #     }
-        #     ]
-        #     }
-        # ],
-        # "response_mime_type": "application/json",
-        # "response_schema": {
-        #     "required": [
-        #         "name",
-        #         "population",
-        #         "capital",
-        #         "continent",
-        #         "gdp",
-        #         "official_language",
-        #         "total_area_sq_mi",
-        #     ],
-        #     "properties": {
-        #         "name": {"type": "STRING"},
-        #         "population": {"type": "INTEGER"},
-        #         "capital": {"type": "STRING"},
-        #         "continent": {"type": "STRING"},
-        #         "gdp": {"type": "INTEGER"},
-        #         "official_language": {"type": "STRING"},
-        #         "total_area_sq_mi": {"type": "INTEGER"},
-        #     },
-        #     "type": "OBJECT",
-        # },
+        "response_modalities": ["TEXT"],
+        "tools": [ ToolWrapper([function])  ], # This works (but is hacky)
+        # "tools": [ tool ], # This errors with TypeError: Object of type Schema is not JSON serializable
         "system_instruction":
           [
             "You are a helpful Weather AI.",
@@ -372,14 +292,29 @@ class AudioLoop:
                 current_response = []
                 
                 async for response in turn:
+
+                    # Receive Multimodal Data (assume its Audio)
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
+
+                    # Receive Text
                     if text := response.text:
                         current_response.append(text)
                         if not has_introed:
                             print(f"\n{ASSISTANT_PROMPT} ", end="", flush=True)
                             has_introed = True
                         print(text, end="", flush=True)
+                    
+                    # Receive a Tool Call
+                    elif ( response.server_content 
+                        and response.server_content.model_turn 
+                        and response.server_content.model_turn.parts 
+                        ): # could be cleaner!
+                        code_blocks = []
+                        for part in response.server_content.model_turn.parts:
+                            code_blocks.append(part.executable_code.code)
+
+                        print(colored("\n\t" + str(code_blocks), "yellow"))
                 
                 # Process complete response
                 if current_response:

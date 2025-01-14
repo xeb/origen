@@ -2,3 +2,4 @@ google-genai
 opencv-python
 pyaudio
 mss
+termcolor

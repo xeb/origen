@@ -99,42 +99,21 @@ function = dict(
     }
 )
 
-function2 = [
-  {
-    "name": "move_arm",
-    "description": "Moves the robot arm to the associated coordinates",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "x": {
-          "type": "number"
-        },
-        "y": {
-          "type": "number"
-        },
-        "z": {
-          "type": "number"
-        }
-      }
-    }
-  }
-]
-
 tool = types.Tool(function_declarations=[function])
 
 class ToolWrapper():
-    def __init__(self, function_def):
-        self.function_def = function_def
+    def __init__(self, functions_def):
+        self.functions_def = functions_def
 
     @property
     def function_declarations(self):
-        return self.function_def
+        return self.functions_def
 
 # CONFIG = types.GenerateContentConfig(tools=[tool], response_modalities=["TEXT"])
 CONFIG = {
     "generation_config": {
         "response_modalities": ["TEXT"],
-        "tools": [ ToolWrapper(function2)  ], # This works (but is hacky)
+        "tools": [ ToolWrapper([function])  ], # This works (but is hacky)
         # "tools": [ tool ], # This errors with TypeError: Object of type Schema is not JSON serializable
         "system_instruction":
           [
