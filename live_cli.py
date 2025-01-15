@@ -32,7 +32,6 @@ import mss
 import argparse
 from google import genai
 from google.genai import types
-import pyttsx3
 from termcolor import colored
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
@@ -54,43 +53,32 @@ USER_PROMPT = "User >"
 ASSISTANT_PROMPT = "Assistant >"
 
 MODEL = "models/gemini-2.0-flash-exp"
-DEFAULT_MODE = "none"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
 function = types.FunctionDeclaration(
-      name="get_current_weather",
-      description="Get the current weather in a given location",
+      name="print_on_screen",
+      description="Prints a friendly instruction on the screen to share with the user what the AI is doing",
       parameters= types.Schema(
         type="OBJECT",
         properties={
-            "location": types.Schema(
+            "response": types.Schema(
                 type="STRING",
-                description="The city and state, e.g. San Francisco, CA",
+                description="The response to print on the screen to share with the current user",
                 ),
         },
-        required=["location"],),
+        required=["response"],),
     )
-
 
 tool = types.Tool(function_declarations=[function])
 
-CONFIG = types.LiveConnectConfig(
-    response_modalities=['TEXT'],
-    tools=[tool],
-    system_instruction=types.Content(
-          parts=[
-              types.Part(text="You are a helpful Weather AI."),
-              types.Part(text="Your mission is to see what the Current Weather is OR say something to the user if in doubt.")
-          ]
-    )
-)
-
 pya = pyaudio.PyAudio()
 
-class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE):
-        self.video_mode = video_mode
+class StreamLoop:
+    def __init__(self, config=None, inputs=None, tts=False, debug=False):
+        self.config = config
+        self.debug = debug
+        self.inputs = inputs
         self.audio_in_queue = None
         self.out_queue = None
         self.session = None
@@ -100,9 +88,7 @@ class AudioLoop:
         self.text_buffer = []  # Buffer to accumulate text responses
         self.audio_stream = None
         self.output_stream = None
-        # Initialize TTS engine directly instead of using TTSPlayer
-        self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 175)
+        self.tts = tts
 
 
     async def convert_text_to_audio(self, text):
@@ -158,11 +144,6 @@ class AudioLoop:
         if self.output_stream:
             self.output_stream.stop_stream()
             self.output_stream.close()
-        if self.engine:
-            try:
-                self.engine.stop()
-            except:
-                pass
 
     async def send_text(self):
         while True:
@@ -172,7 +153,9 @@ class AudioLoop:
                     USER_PROMPT,
                 )
                 if text.lower() == "q" or text.lower() in ["quit", "exit"]:
-                    break
+                    print("Quitting time")
+                    sys.exit(0)
+                    return
                 await self.session.send(input=text or ".", end_of_turn=True)
             except Exception as e:
                 print(f"Error in send_text: {e}")
@@ -192,7 +175,7 @@ class AudioLoop:
 
         mime_type = "image/jpeg"
         image_bytes = image_io.read()
-        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
+        return {"mime_type": mime_type, "source": "camera", "data": base64.b64encode(image_bytes).decode()}
 
     async def get_frames(self):
         try:
@@ -221,7 +204,7 @@ class AudioLoop:
         image_io.seek(0)
 
         image_bytes = image_io.read()
-        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
+        return {"mime_type": mime_type, "source": "screen", "data": base64.b64encode(image_bytes).decode()}
 
     async def get_screen(self):
         while True:
@@ -239,7 +222,10 @@ class AudioLoop:
         while True:
             try:
                 msg = await self.out_queue.get()
-                # print(f"\t\tSending {msg['mime_type']}")
+
+                if self.debug:
+                    print(f"\t\tSending {msg['mime_type']=} {msg['source']=}")
+                msg.pop("source") # don't send to the API
                 await self.session.send(input=msg)
             except Exception as e:
                 print(f"Error in send_realtime: {e}")
@@ -265,7 +251,7 @@ class AudioLoop:
                 
             while True:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-                await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+                await self.out_queue.put({"source": "microphone", "data": data, "mime_type": "audio/pcm"})
         except Exception as e:
             print(f"Error in listen_audio: {e}")
         finally:
@@ -302,9 +288,11 @@ class AudioLoop:
                         ): # could be cleaner!
                         code_blocks = []
                         for part in response.server_content.model_turn.parts:
-                            code_blocks.append(part.executable_code.code)
+                            if part.executable_code and part.executable_code.code:
+                                code_blocks.append(part.executable_code.code)
 
-                        print(colored("\n\t" + str(code_blocks), "yellow"))
+                        if len(code_blocks) > 0:
+                            print(colored("\n\t" + str(code_blocks), "yellow"))
                 
                 # Process complete response
                 if current_response:
@@ -312,15 +300,16 @@ class AudioLoop:
                     print(f"\n{USER_PROMPT} ", end="", flush=True)
                     
                     # Convert text to audio and add to queue
-                    pcm_data = await self.convert_text_to_audio(complete_text)
-                    if pcm_data:
-                        # Split PCM data into chunks to match expected audio format
-                        chunk_size = CHUNK_SIZE * 2  # * 2 because we're using 16-bit audio
-                        for i in range(0, len(pcm_data), chunk_size):
-                            chunk = pcm_data[i:i + chunk_size]
-                            if chunk:  # Only add non-empty chunks
-                                self.audio_in_queue.put_nowait(chunk)
-                    
+                    if self.tts:
+                        pcm_data = await self.convert_text_to_audio(complete_text)
+                        if pcm_data:
+                            # Split PCM data into chunks to match expected audio format
+                            chunk_size = CHUNK_SIZE * 2  # * 2 because we're using 16-bit audio
+                            for i in range(0, len(pcm_data), chunk_size):
+                                chunk = pcm_data[i:i + chunk_size]
+                                if chunk:  # Only add non-empty chunks
+                                    self.audio_in_queue.put_nowait(chunk)
+                        
                     current_response = []
 
                 # Clear audio queue on interruption
@@ -353,7 +342,9 @@ class AudioLoop:
     async def run(self):
         try:
             # https://github.com/googleapis/python-genai/blob/main/google/genai/live.py#L629
-            async with client.aio.live.connect(model=MODEL, config=CONFIG) as session:
+            # https://github.com/googleapis/python-genai/issues/121
+            # config can be types.LiveConnectConfig or dict
+            async with client.aio.live.connect(model=MODEL, config=self.config) as session:
                 self.session = session
                 self.audio_in_queue = asyncio.Queue()
                 self.out_queue = asyncio.Queue(maxsize=5)
@@ -361,10 +352,12 @@ class AudioLoop:
                 async with asyncio.TaskGroup() as tg:
                     send_text_task = tg.create_task(self.send_text())
                     tg.create_task(self.send_realtime())
-                    tg.create_task(self.listen_audio())
-                    if self.video_mode == "camera":
+
+                    if "audio" in self.inputs:
+                        tg.create_task(self.listen_audio())
+                    if "camera" in self.inputs:
                         tg.create_task(self.get_frames())
-                    elif self.video_mode == "screen":
+                    if "screen" in self.inputs:
                         tg.create_task(self.get_screen())
 
                     tg.create_task(self.receive_responses())
@@ -380,17 +373,89 @@ class AudioLoop:
         finally:
             await self.cleanup()
 
+class FlexibleListAction(argparse.Action):
+    def __init__(self, type_func=str, choices=None, *args, **kwargs):
+        self.type_func = type_func
+        self.choices = choices
+        super().__init__(*args, **kwargs)
+        
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = getattr(namespace, self.dest, []) or []
+        
+        try:
+            if isinstance(values, str):
+                new_items = [self.type_func(v.strip()) 
+                            for v in values.split(',') 
+                            if v.strip()]
+            else:
+                new_items = [self.type_func(v) for v in values]
+                
+            # Validate choices
+            if self.choices is not None:
+                invalid_items = [str(item) for item in new_items if item not in self.choices]
+                if invalid_items:
+                    raise argparse.ArgumentError(
+                        self,
+                        f"invalid choice(s): {', '.join(invalid_items)}. "
+                        f"(choose from {', '.join(str(c) for c in self.choices)})"
+                    )
+                    
+            items.extend(new_items)
+            setattr(namespace, self.dest, items)
+            
+        except ValueError as e:
+            raise argparse.ArgumentError(self, f"invalid value: {str(e)}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--mode",
-        type=str,
-        default=DEFAULT_MODE,
-        help="pixels to stream from",
-        choices=["camera", "screen", "none"],
+        "--inputs", 
+        action=FlexibleListAction,
+        nargs='*',  # Accept any number of space-separated values
+        help="List of inputs. Can be specified multiple times, comma-separated, or space-separated",
+        choices=["camera", "screen", "text", "audio"],
+        default=[]
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="text",
+        help="Output mode. Note that output modes cannot be mixed, unlike inputs. Text_TTS is just text output with a system TTS post process, primarily for demo purposes.",
+        choices=["text", "audio", "text_tts"],
+    )
+    parser.add_argument(
+        "--tools",
+        action="store_true",
+        help="Whether or not to use Tools in the live stream",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug (right now) will print the 'inputs' being streamed",
+    )
+
     args = parser.parse_args()
-    main = AudioLoop(video_mode=args.mode)
+
+    # We only expect output to be TEXT or AUDIO -- never both (not yet supported)
+    output = args.output.upper() if args.output != "text_tts" else "TEXT"
+
+    config = types.LiveConnectConfig(
+        response_modalities=[output],
+        system_instruction=types.Content(
+            parts=[
+                types.Part(text="You are a helpful desktop assistant AI."),
+                types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool."),
+                types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),
+            ]
+        )
+    )
+
+    if args.tools:
+        config.tools = [ tool ]
+
+    print(f"Configuration: \n\t{args.tools=}\n\t{args.output=}\n\t{args.inputs=}")
+    main = StreamLoop(config=config, inputs=args.inputs, tts=args.output == "text_tts", debug=args.debug)
     
     try:
         asyncio.run(main.run())
