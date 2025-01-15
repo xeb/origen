@@ -18,16 +18,14 @@ import asyncio
 import base64
 import io
 import os
-import json
 import sys
 import traceback
-
 import cv2
 import pyaudio
-import wave
 import tempfile
 import PIL.Image
 import mss
+import pyautogui
 
 import argparse
 from google import genai
@@ -56,8 +54,8 @@ MODEL = "models/gemini-2.0-flash-exp"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-function = types.FunctionDeclaration(
-      name="print_on_screen",
+print_def = types.FunctionDeclaration(
+      name="self.print_on_screen",
       description="Prints a friendly instruction on the screen to share with the user what the AI is doing",
       parameters= types.Schema(
         type="OBJECT",
@@ -70,8 +68,97 @@ function = types.FunctionDeclaration(
         required=["response"],),
     )
 
-tool = types.Tool(function_declarations=[function])
+click_def = types.FunctionDeclaration(
+      name="pyautogui.click",
+      description="Moves to a location on the screen and then clicks it",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "x": types.Schema(
+                type="INTEGER",
+                description="The x coordinate to move to and click",
+                ),
+            "y": types.Schema(
+                type="INTEGER",
+                description="The y coordinate to move to and click",
+                ),
+        },
+        required=["x", "y"],),
+    )
 
+move_def = types.FunctionDeclaration(
+      name="pyautogui.moveTo",
+      description="Moves the mouse to a location and waits",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "x": types.Schema(
+                type="INTEGER",
+                description="The x coordinate to move to and click",
+                ),
+            "y": types.Schema(
+                type="INTEGER",
+                description="The y coordinate to move to and click",
+                ),
+        },
+        required=["x", "y"],),
+    )
+
+type_def = types.FunctionDeclaration(
+      name="pyautogui.write",
+      description="Write text on the screen",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "message": types.Schema(
+                type="STRING",
+                description="The text to write",
+                ),
+        },
+        required=["message"],),
+    )
+
+press_def = types.FunctionDeclaration(
+      name="pyautogui.press",
+      description="Press a key on the keyboard, such as 'enter' or anything supported by pyautogui",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "keys": types.Schema(
+                type="STRING",
+                description="The key to press",
+                ),
+        },
+        required=["keys"],),
+    )
+
+
+class FunctionRunner():
+    def __init__(self):
+        pass
+
+    def exec(self, cmds: list[str]):
+        # print(colored("\n\tFunction Runner: Processing " + str(cmds), "yellow"))
+        for cmd in cmds:
+            try:
+                new_cmd = cmd.replace("default_api", "self")
+                if new_cmd.startswith("self.pyautogui"):
+                    new_cmd = new_cmd.replace("self.", "")
+                exec(new_cmd)
+            except Exception as e:
+                print(colored(f"\n\tFunction Runner: Error executing command: {new_cmd}\n{e}", "red"))
+
+    def print_on_screen(self, response):
+        print(colored(f"\n\n{response}", "yellow"))
+
+    def write(self, text):
+        print(colored(f"\n\n{text}", "yellow"))
+
+
+
+
+
+tool = types.Tool(function_declarations=[print_def, click_def, move_def, type_def, press_def])
 pya = pyaudio.PyAudio()
 
 class StreamLoop:
@@ -89,6 +176,7 @@ class StreamLoop:
         self.audio_stream = None
         self.output_stream = None
         self.tts = tts
+        self.function_runner = FunctionRunner()
 
 
     async def convert_text_to_audio(self, text):
@@ -292,7 +380,8 @@ class StreamLoop:
                                 code_blocks.append(part.executable_code.code)
 
                         if len(code_blocks) > 0:
-                            print(colored("\n\t" + str(code_blocks), "yellow"))
+                            self.function_runner.exec(code_blocks)
+
                 
                 # Process complete response
                 if current_response:
@@ -445,16 +534,19 @@ if __name__ == "__main__":
         system_instruction=types.Content(
             parts=[
                 types.Part(text="You are a helpful desktop assistant AI."),
-                types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool."),
+                types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool with just the response you need."),
+                types.Part(text="If you are able to click on things in the screen, you can use that tool."),
                 types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),
             ]
         )
     )
 
+    tool_list_str = ""
     if args.tools:
         config.tools = [ tool ]
+        tool_list_str = ", ".join([tool.name for tool in tool.function_declarations])
 
-    print(f"Configuration: \n\t{args.tools=}\n\t{args.output=}\n\t{args.inputs=}")
+    print(f"Configuration: \n\t{args.tools=}\n\t{args.output=}\n\t{args.inputs=}\n\t{tool_list_str=}")
     main = StreamLoop(config=config, inputs=args.inputs, tts=args.output == "text_tts", debug=args.debug)
     
     try:

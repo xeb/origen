@@ -3,3 +3,6 @@ opencv-python
 pyaudio
 mss
 termcolor
+pyautogui
+# curses
+windows-curses
