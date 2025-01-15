@@ -26,11 +26,19 @@ import tempfile
 import PIL.Image
 import mss
 import pyautogui
-
+import asyncio
+from threading import Event
+import queue
+import time
+from concurrent.futures import ThreadPoolExecutor
+import time
+import threading
 import argparse
 from google import genai
 from google.genai import types
 from termcolor import colored
+import Quartz
+import AppKit
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
 with open(os.path.expanduser("~/.ssh/gemini_api_key.txt")) as f:
@@ -54,54 +62,30 @@ MODEL = "models/gemini-2.0-flash-exp"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
 
-print_def = types.FunctionDeclaration(
-      name="self.print_on_screen",
-      description="Prints a friendly instruction on the screen to share with the user what the AI is doing",
+move_and_click_def = types.FunctionDeclaration(
+      name="self.moveToThenClick",
+      description="Moves the mouse to a location and then clicks that object",
       parameters= types.Schema(
         type="OBJECT",
         properties={
-            "response": types.Schema(
-                type="STRING",
-                description="The response to print on the screen to share with the current user",
+            "x1": types.Schema(
+                type="INTEGER",
+                description="The x1 coordinate to move to and click",
+                ),
+            "y1": types.Schema(
+                type="INTEGER",
+                description="The y1 coordinate to move to and click",
+                ),
+            "x2": types.Schema(
+                type="INTEGER",
+                description="The x2 coordinate to move to and click",
+                ),
+            "y2": types.Schema(
+                type="INTEGER",
+                description="The y2 coordinate to move to and click",
                 ),
         },
-        required=["response"],),
-    )
-
-click_def = types.FunctionDeclaration(
-      name="pyautogui.click",
-      description="Moves to a location on the screen and then clicks it",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "x": types.Schema(
-                type="INTEGER",
-                description="The x coordinate to move to and click",
-                ),
-            "y": types.Schema(
-                type="INTEGER",
-                description="The y coordinate to move to and click",
-                ),
-        },
-        required=["x", "y"],),
-    )
-
-move_def = types.FunctionDeclaration(
-      name="pyautogui.moveTo",
-      description="Moves the mouse to a location and waits",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "x": types.Schema(
-                type="INTEGER",
-                description="The x coordinate to move to and click",
-                ),
-            "y": types.Schema(
-                type="INTEGER",
-                description="The y coordinate to move to and click",
-                ),
-        },
-        required=["x", "y"],),
+        required=["x1", "y1", "x2", "y2"],),
     )
 
 type_def = types.FunctionDeclaration(
@@ -132,37 +116,89 @@ press_def = types.FunctionDeclaration(
         required=["keys"],),
     )
 
+tool = types.Tool(function_declarations=[move_and_click_def, type_def, press_def, ])
 
-class FunctionRunner():
-    def __init__(self):
+class SyncFunctionRunner():
+    def __init__(self, context=None):
+        self.context = context
         pass
 
     def exec(self, cmds: list[str]):
-        # print(colored("\n\tFunction Runner: Processing " + str(cmds), "yellow"))
+        print(colored("\n\tSync Function Runner: Processing " + str(cmds), "yellow"))
         for cmd in cmds:
             try:
                 new_cmd = cmd.replace("default_api", "self")
                 if new_cmd.startswith("self.pyautogui"):
                     new_cmd = new_cmd.replace("self.", "")
+                if new_cmd.startswith("print_on_screen.self.print_on_screen"):
+                    new_cmd = new_cmd.replace("print_on_screen.self.print_on_screen", "self.print_on_screen")
+                if new_cmd.startswith("print_on_screen.print_on_screen("):
+                    new_cmd = new_cmd.replace("print_on_screen.print_on_screen(", "self.print_on_screen(")
+
                 exec(new_cmd)
+
             except Exception as e:
                 print(colored(f"\n\tFunction Runner: Error executing command: {new_cmd}\n{e}", "red"))
 
     def print_on_screen(self, response):
-        print(colored(f"\n\n{response}", "yellow"))
+        print(colored(f"\n\n{response}", "green"))
 
     def write(self, text):
         print(colored(f"\n\n{text}", "yellow"))
 
+    def moveToThenClick(self, x1, y1, x2, y2):
+        print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
+        x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
+        x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
+        y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
+        y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
+        print(colored(f"\n\tmoveToThenClick going to normalized to {x1_norm=}{y1_norm=}{x2_norm=}{y2_norm=}", "yellow"))
+
+        # Get center x coordinate by averaging x1 and x2
+        center_x = int((x1_norm + x2_norm) / 2)
+
+        # Get center y coordinate by averaging y1 and y2
+        center_y = int((y1_norm + y2_norm) / 2)
+
+        print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
+        # pyautogui.moveTo(x=center_x, y=center_y)
+        pyautogui.click(x=center_x, y=center_y)
 
 
+    # def moveToThenClick(self, x1, y1, x2, y2):
+    #     print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
 
+    #     # Get center x coordinate by averaging x1 and x2
+    #     center_x = int((x1 + x2) / 2)
 
-tool = types.Tool(function_declarations=[print_def, click_def, move_def, type_def, press_def])
+    #     # Get center y coordinate by averaging y1 and y2
+    #     center_y = int((y1 + y2) / 2)
+
+    #     print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
+    #     pyautogui.click(x=center_x, y=center_y)
+
+def list_input_devices():
+    p = pyaudio.PyAudio()
+    available_inputs = []
+    print("Available input devices:")
+    for i in range(p.get_device_count()):
+        device_info = p.get_device_info_by_index(i)
+        # Check if the device has input channels
+        if device_info['maxInputChannels'] > 0:
+            print(f"Device {i}: {device_info['name']}")
+            print(f"  Input channels: {device_info['maxInputChannels']}")
+            print(f"  Sample rate: {int(device_info['defaultSampleRate'])} Hz")
+            available_inputs.append(i)
+    
+    p.terminate()
+    return available_inputs
+
+available_audio_inputs = list_input_devices()
+
 pya = pyaudio.PyAudio()
 
 class StreamLoop:
-    def __init__(self, config=None, inputs=None, tts=False, debug=False):
+    def __init__(self, config=None, inputs=None, tts=False, debug=False, audio_input=1):
         self.config = config
         self.debug = debug
         self.inputs = inputs
@@ -176,8 +212,7 @@ class StreamLoop:
         self.audio_stream = None
         self.output_stream = None
         self.tts = tts
-        self.function_runner = FunctionRunner()
-
+        self.audio_input = audio_input
 
     async def convert_text_to_audio(self, text):
         """Convert text to audio using macOS say command directly to WAV"""
@@ -217,12 +252,10 @@ class StreamLoop:
             traceback.print_exc()
             return None
 
-
         except Exception as e:
             print(f"Error converting text to audio: {e}")
             traceback.print_exc()
             return None
-        
         
     async def cleanup(self):
         """Safely clean up resources"""
@@ -287,6 +320,9 @@ class StreamLoop:
         image_bytes = mss.tools.to_png(i.rgb, i.size)
         img = PIL.Image.open(io.BytesIO(image_bytes))
 
+        self.last_screen_width = img.size[0]
+        self.last_screen_height = img.size[1]
+
         image_io = io.BytesIO()
         img.save(image_io, format="jpeg")
         image_io.seek(0)
@@ -321,7 +357,7 @@ class StreamLoop:
 
     async def listen_audio(self):
         try:
-            mic_info = pya.get_default_input_device_info()
+            mic_info = pya.get_device_info_by_index(self.audio_input)
             self.audio_stream = await asyncio.to_thread(
                 pya.open,
                 format=FORMAT,
@@ -380,7 +416,11 @@ class StreamLoop:
                                 code_blocks.append(part.executable_code.code)
 
                         if len(code_blocks) > 0:
-                            self.function_runner.exec(code_blocks)
+                            func_run = SyncFunctionRunner({
+                                "last_screen_width": self.last_screen_width,
+                                "last_screen_height": self.last_screen_height,
+                            })
+                            func_run.exec(code_blocks)
 
                 
                 # Process complete response
@@ -519,6 +559,13 @@ if __name__ == "__main__":
         help="Whether or not to use Tools in the live stream",
     )
     parser.add_argument(
+        "--audio_input",
+        type=int,
+        default="1",
+        help="The microphone you want to use.",
+        choices=available_audio_inputs,
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Debug (right now) will print the 'inputs' being streamed",
@@ -534,9 +581,10 @@ if __name__ == "__main__":
         system_instruction=types.Content(
             parts=[
                 types.Part(text="You are a helpful desktop assistant AI."),
-                types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool with just the response you need."),
-                types.Part(text="If you are able to click on things in the screen, you can use that tool."),
-                types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),
+                # types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool with just the response you need."),
+                # types.Part(text="If you are able to click on things in the screen, you can use that tool."),
+                # types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),
+                # types.Part(text="When you are being asked to move the mouse, first predict the box2d location of the element and draw a bounding box."),
             ]
         )
     )

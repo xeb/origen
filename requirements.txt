@@ -5,4 +5,5 @@ mss
 termcolor
 pyautogui
 # curses
-windows-curses
+# windows-curses
+PyQt5
