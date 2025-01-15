@@ -1,5 +1,25 @@
-# From https://github.com/google-gemini/cookbook/blob/main/gemini-2/live_api_starter.py
 # -*- coding: utf-8 -*-
+# -------------
+# origen
+# -------------
+#
+# This was initially copied from / inspired by: From https://github.com/google-gemini/cookbook/blob/main/gemini-2/live_api_starter.py
+# There are notable changes, namely CLI arguments for multiple input streams
+# and Tool Use / Function Calling
+#
+# $ python live_cli.py --help
+# usage: live_cli.py [-h] [--inputs [INPUTS ...]] [--output {text,audio,text_tts}] [--tools] [--audio_input {0}] [--debug]
+# options:
+#  -h, --help            show this help message and exit
+# --inputs [INPUTS ...]
+#                        List of inputs. Can be specified multiple times, comma-separated, or space-separated
+#  --output {text,audio,text_tts}
+#                        Output mode. Note that output modes cannot be mixed, unlike inputs. Text_TTS is just text output with a system TTS post process, primarily for
+#                        demo purposes.
+#  --tools               Whether or not to use Tools in the live stream
+#  --audio_input {0}     The microphone you want to use.
+#  --debug               Debug (right now) will print the 'inputs' being streamed
+#
 # Copyright 2023 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
