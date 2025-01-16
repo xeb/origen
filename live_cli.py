@@ -34,6 +34,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# TODO:
+# (1) save screenshots when bounding oxes are identified
+# (2) save logfile of activity
+
 import asyncio
 import base64
 import io
@@ -44,6 +48,7 @@ import cv2
 import pyaudio
 import tempfile
 import PIL.Image
+import PIL.ImageDraw
 import mss
 import pyautogui
 import asyncio
@@ -108,6 +113,32 @@ move_and_click_def = types.FunctionDeclaration(
         required=["x1", "y1", "x2", "y2"],),
     )
 
+draw_box = types.FunctionDeclaration(
+      name="self.draw_bounding_box",
+      description="Draws a bounding box around an area of the screen",
+      parameters= types.Schema(
+        type="OBJECT",
+        properties={
+            "x1": types.Schema(
+                type="INTEGER",
+                description="The x1 coordinate to move to and click",
+                ),
+            "y1": types.Schema(
+                type="INTEGER",
+                description="The y1 coordinate to move to and click",
+                ),
+            "x2": types.Schema(
+                type="INTEGER",
+                description="The x2 coordinate to move to and click",
+                ),
+            "y2": types.Schema(
+                type="INTEGER",
+                description="The y2 coordinate to move to and click",
+                ),
+        },
+        required=["x1", "y1", "x2", "y2"],),
+    )
+
 type_def = types.FunctionDeclaration(
       name="pyautogui.write",
       description="Write text on the screen",
@@ -136,7 +167,8 @@ press_def = types.FunctionDeclaration(
         required=["keys"],),
     )
 
-tool = types.Tool(function_declarations=[move_and_click_def, type_def, press_def, ])
+# tool = types.Tool(function_declarations=[move_and_click_def, type_def, press_def, ])
+tool = types.Tool(function_declarations=[draw_box])
 
 class SyncFunctionRunner():
     def __init__(self, context=None):
@@ -166,36 +198,67 @@ class SyncFunctionRunner():
     def write(self, text):
         print(colored(f"\n\n{text}", "yellow"))
 
-    def moveToThenClick(self, x1, y1, x2, y2):
-        print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
-        x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
-        x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
-        y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
-        y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
-        print(colored(f"\n\tmoveToThenClick going to normalized to {x1_norm=}{y1_norm=}{x2_norm=}{y2_norm=}", "yellow"))
-
-        # Get center x coordinate by averaging x1 and x2
-        center_x = int((x1_norm + x2_norm) / 2)
-
-        # Get center y coordinate by averaging y1 and y2
-        center_y = int((y1_norm + y2_norm) / 2)
-
-        print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
-        # pyautogui.moveTo(x=center_x, y=center_y)
-        pyautogui.click(x=center_x, y=center_y)
-
-
     # def moveToThenClick(self, x1, y1, x2, y2):
     #     print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
+    #     x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
+    #     x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
+    #     y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
+    #     y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
+    #     print(colored(f"\n\tmoveToThenClick going to normalized to {x1_norm=}{y1_norm=}{x2_norm=}{y2_norm=}", "yellow"))
 
     #     # Get center x coordinate by averaging x1 and x2
-    #     center_x = int((x1 + x2) / 2)
+    #     center_x = int((x1_norm + x2_norm) / 2)
 
     #     # Get center y coordinate by averaging y1 and y2
-    #     center_y = int((y1 + y2) / 2)
+    #     center_y = int((y1_norm + y2_norm) / 2)
 
     #     print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
+    #     # pyautogui.moveTo(x=center_x, y=center_y)
     #     pyautogui.click(x=center_x, y=center_y)
+
+    def draw_bounding_box(self, x1, y1, x2, y2):
+        try:
+            # Get the last screen path from self
+            last_screen_path = self.context["last_screen_path"]
+
+            # Open the image using PIL
+            img = PIL.Image.open(last_screen_path)
+            
+            x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
+            x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
+            y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
+            y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
+
+            # Create a draw object
+            draw = PIL.ImageDraw.Draw(img)
+
+            # Draw a red rectangle using the given coordinates
+            draw.rectangle((x1, y1, x2, y2), outline="red", width=3) # Increased width for visibility
+            draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline="blue", width=3) # Increased width for visibility
+
+            # Save the image with the bounding box
+            img.save("last_screen_withbox.jpg", format="jpeg")
+
+        except Exception as e:
+            print(colored(f"\n\tdraw_bounding_box: Error drawing or saving bounding box: {e}", "red"))
+
+
+    def moveToThenClick(self, x1, y1, x2, y2):
+
+        # Let's save the bounding box
+        self.draw_bounding_box(x1, y1, x2, y2)
+
+        print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
+
+        # Get center x coordinate by averaging x1 and x2
+        center_x = int((x1 + x2) / 2)
+
+        # Get center y coordinate by averaging y1 and y2
+        center_y = int((y1 + y2) / 2)
+
+        print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
+        pyautogui.click(x=center_x, y=center_y)
+
 
 def list_input_devices():
     p = pyaudio.PyAudio()
@@ -314,6 +377,8 @@ class StreamLoop:
         img.save(image_io, format="jpeg")
         image_io.seek(0)
 
+        img.save("last_camera.jpg", format="jpeg")
+
         mime_type = "image/jpeg"
         image_bytes = image_io.read()
         return {"mime_type": mime_type, "source": "camera", "data": base64.b64encode(image_bytes).decode()}
@@ -346,6 +411,8 @@ class StreamLoop:
         image_io = io.BytesIO()
         img.save(image_io, format="jpeg")
         image_io.seek(0)
+
+        img.save("last_screen.jpg", format="jpeg")
 
         image_bytes = image_io.read()
         return {"mime_type": mime_type, "source": "screen", "data": base64.b64encode(image_bytes).decode()}
@@ -439,8 +506,12 @@ class StreamLoop:
                             func_run = SyncFunctionRunner({
                                 "last_screen_width": self.last_screen_width,
                                 "last_screen_height": self.last_screen_height,
+                                "last_screen_path" : "last_screen.jpg"
                             })
-                            func_run.exec(code_blocks)
+                            try:
+                                func_run.exec(code_blocks)
+                            except Exception as e:
+                                print(f"Error in function execution: {e}")
 
                 
                 # Process complete response
@@ -601,6 +672,9 @@ if __name__ == "__main__":
         system_instruction=types.Content(
             parts=[
                 types.Part(text="You are a helpful desktop assistant AI."),
+                types.Part(text="When asked to draw bounding boxes, always use box2d formats for x1,y1 and x2,2."),
+                types.Part(text="Do not ask the user for coordinates."),
+                types.Part(text="Do not apologize for making mistakes unless you are told you made a mistake. Assuming the bounding box was drawn successfully."),
                 # types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool with just the response you need."),
                 # types.Part(text="If you are able to click on things in the screen, you can use that tool."),
                 # types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),

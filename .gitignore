@@ -2,3 +2,4 @@ venv
 *.wav
 venv-*
 __pycache__
+*.jpg
