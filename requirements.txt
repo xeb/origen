@@ -4,6 +4,3 @@ pyaudio
 mss
 termcolor
 pyautogui
-# curses
-# windows-curses
-PyQt5

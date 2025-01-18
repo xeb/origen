@@ -62,8 +62,6 @@ import argparse
 from google import genai
 from google.genai import types
 from termcolor import colored
-import Quartz
-import AppKit
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
 with open(os.path.expanduser("~/.ssh/gemini_api_key.txt")) as f:
