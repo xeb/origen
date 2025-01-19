@@ -33,10 +33,10 @@ class SyncFunctionRunner():
         # print(colored("\n\tSync Function Runner: Processing " + str(function_calls), "yellow"))
         for function_call in function_calls:
             try:
-                # print(f"Running {function_call.name=} with {function_call.args=}")
+                print(f"Running {function_call.name=} with {function_call.args=}")
                 method = getattr(self, function_call.name)
                 result = method(**function_call.args)
-                # print(f"Received {result=}")
+                print(f"Received {result=}")
 
                 tool_response = types.LiveClientToolResponse(
                     function_responses=[
@@ -58,7 +58,6 @@ class SyncFunctionRunner():
         return response.json()
 
     def go_home(self):
-        print("Going home")
         response = requests.post("http://er:5000/move/home")
         result = response.json()
         return result
@@ -70,6 +69,26 @@ class SyncFunctionRunner():
 
     def close_gripper(self):
         response = requests.post("http://er:5000/move/close")
+        result = response.json()
+        return result
+    
+    def wave(self):
+        response = requests.post("http://er:5000/move/wave")
+        result = response.json()
+        return result
+
+    def custom(self, j1, j2, j3, j4, j5, j6, type):
+        print(f"Custom Movement: {j1=}, {j2=}, {j3=}, {j4=}, {j5=}, {j6=} {type=}")
+        """ Moves the robot to a custom location. If the type is 'angles' it uses the joint angles, if the type is 'coords' it uses the coordinate plan with j4 as pitch, j5 as yaw and j6 as roll. j1 is x, j2 is y, j3 is z."""
+        response = requests.post("http://er:5000/move/custom", data= {
+            "j1": j1,
+            "j2": j2,
+            "j3": j3,
+            "j4": j4,
+            "j5": j5,
+            "j6": j6,
+            "type": type
+        })
         result = response.json()
         return result
 
