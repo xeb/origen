@@ -261,7 +261,7 @@ class StreamLoop:
 
                 if "source" in msg:
                     msg.pop("source") # don't send to the API
-                    
+
                 await self.session.send(input=msg)
             except Exception as e:
                 print(f"Error in send_realtime: {e}")
@@ -515,10 +515,8 @@ if __name__ == "__main__":
         )
     )
 
-    tool_list_str = ""
     if args.tools:
         config.tools = tool_list
-        
 
     print(f"Configuration: \n\t{args.tools=}\n\t{args.output=}\n\t{args.inputs=}\n\t{tool_list_str=}")
     main = StreamLoop(config=config, inputs=args.inputs, tts=args.output == "text_tts", debug=args.debug)
