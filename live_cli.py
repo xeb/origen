@@ -50,17 +50,12 @@ import tempfile
 import PIL.Image
 import PIL.ImageDraw
 import mss
-import pyautogui
 import asyncio
-from threading import Event
-import queue
-import time
-from concurrent.futures import ThreadPoolExecutor
-import time
-import threading
 import argparse
 from google import genai
 from google.genai import types
+# from computer_use import SyncFunctionRunner, tool_list, tool_list_str
+from robot_api import SyncFunctionRunner, tool_list, tool_list_str
 from termcolor import colored
 
 # Set the contents of ~/.ssh/gemini_api_key.txt to the env GOOGLE_API_KEY
@@ -84,179 +79,6 @@ ASSISTANT_PROMPT = "Assistant >"
 MODEL = "models/gemini-2.0-flash-exp"
 
 client = genai.Client(http_options={"api_version": "v1alpha"})
-
-move_and_click_def = types.FunctionDeclaration(
-      name="self.moveToThenClick",
-      description="Moves the mouse to a location and then clicks that object",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "x1": types.Schema(
-                type="INTEGER",
-                description="The x1 coordinate to move to and click",
-                ),
-            "y1": types.Schema(
-                type="INTEGER",
-                description="The y1 coordinate to move to and click",
-                ),
-            "x2": types.Schema(
-                type="INTEGER",
-                description="The x2 coordinate to move to and click",
-                ),
-            "y2": types.Schema(
-                type="INTEGER",
-                description="The y2 coordinate to move to and click",
-                ),
-        },
-        required=["x1", "y1", "x2", "y2"],),
-    )
-
-draw_box = types.FunctionDeclaration(
-      name="self.draw_bounding_box",
-      description="Draws a bounding box around an area of the screen",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "x1": types.Schema(
-                type="INTEGER",
-                description="The x1 coordinate to move to and click",
-                ),
-            "y1": types.Schema(
-                type="INTEGER",
-                description="The y1 coordinate to move to and click",
-                ),
-            "x2": types.Schema(
-                type="INTEGER",
-                description="The x2 coordinate to move to and click",
-                ),
-            "y2": types.Schema(
-                type="INTEGER",
-                description="The y2 coordinate to move to and click",
-                ),
-        },
-        required=["x1", "y1", "x2", "y2"],),
-    )
-
-type_def = types.FunctionDeclaration(
-      name="pyautogui.write",
-      description="Write text on the screen",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "message": types.Schema(
-                type="STRING",
-                description="The text to write",
-                ),
-        },
-        required=["message"],),
-    )
-
-press_def = types.FunctionDeclaration(
-      name="pyautogui.press",
-      description="Press a key on the keyboard, such as 'enter' or anything supported by pyautogui",
-      parameters= types.Schema(
-        type="OBJECT",
-        properties={
-            "keys": types.Schema(
-                type="STRING",
-                description="The key to press",
-                ),
-        },
-        required=["keys"],),
-    )
-
-# tool = types.Tool(function_declarations=[move_and_click_def, type_def, press_def, ])
-tool = types.Tool(function_declarations=[draw_box])
-
-class SyncFunctionRunner():
-    def __init__(self, context=None):
-        self.context = context
-        pass
-
-    def exec(self, cmds: list[str]):
-        print(colored("\n\tSync Function Runner: Processing " + str(cmds), "yellow"))
-        for cmd in cmds:
-            try:
-                new_cmd = cmd.replace("default_api", "self")
-                if new_cmd.startswith("self.pyautogui"):
-                    new_cmd = new_cmd.replace("self.", "")
-                if new_cmd.startswith("print_on_screen.self.print_on_screen"):
-                    new_cmd = new_cmd.replace("print_on_screen.self.print_on_screen", "self.print_on_screen")
-                if new_cmd.startswith("print_on_screen.print_on_screen("):
-                    new_cmd = new_cmd.replace("print_on_screen.print_on_screen(", "self.print_on_screen(")
-
-                exec(new_cmd)
-
-            except Exception as e:
-                print(colored(f"\n\tFunction Runner: Error executing command: {new_cmd}\n{e}", "red"))
-
-    def print_on_screen(self, response):
-        print(colored(f"\n\n{response}", "green"))
-
-    def write(self, text):
-        print(colored(f"\n\n{text}", "yellow"))
-
-    # def moveToThenClick(self, x1, y1, x2, y2):
-    #     print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
-    #     x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
-    #     x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
-    #     y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
-    #     y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
-    #     print(colored(f"\n\tmoveToThenClick going to normalized to {x1_norm=}{y1_norm=}{x2_norm=}{y2_norm=}", "yellow"))
-
-    #     # Get center x coordinate by averaging x1 and x2
-    #     center_x = int((x1_norm + x2_norm) / 2)
-
-    #     # Get center y coordinate by averaging y1 and y2
-    #     center_y = int((y1_norm + y2_norm) / 2)
-
-    #     print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
-    #     # pyautogui.moveTo(x=center_x, y=center_y)
-    #     pyautogui.click(x=center_x, y=center_y)
-
-    def draw_bounding_box(self, x1, y1, x2, y2):
-        try:
-            # Get the last screen path from self
-            last_screen_path = self.context["last_screen_path"]
-
-            # Open the image using PIL
-            img = PIL.Image.open(last_screen_path)
-            
-            x1_norm = int((x1 / 1000.0) * self.context["last_screen_width"])
-            x2_norm = int((x2 / 1000.0) * self.context["last_screen_width"])
-            y1_norm = int((y1 / 1000.0) * self.context["last_screen_height"])
-            y2_norm = int((y2 / 1000.0) * self.context["last_screen_height"])
-
-            # Create a draw object
-            draw = PIL.ImageDraw.Draw(img)
-
-            # Draw a red rectangle using the given coordinates
-            draw.rectangle((x1, y1, x2, y2), outline="red", width=3) # Increased width for visibility
-            draw.rectangle((x1_norm, y1_norm, x2_norm, y2_norm), outline="blue", width=3) # Increased width for visibility
-
-            # Save the image with the bounding box
-            img.save("last_screen_withbox.jpg", format="jpeg")
-
-        except Exception as e:
-            print(colored(f"\n\tdraw_bounding_box: Error drawing or saving bounding box: {e}", "red"))
-
-
-    def moveToThenClick(self, x1, y1, x2, y2):
-
-        # Let's save the bounding box
-        self.draw_bounding_box(x1, y1, x2, y2)
-
-        print(colored(f"\n\tmoveToThenClick invoked to {x1=}{y1=}{x2=}{y2=}, but need to normalize with {self.context=}", "yellow"))
-
-        # Get center x coordinate by averaging x1 and x2
-        center_x = int((x1 + x2) / 2)
-
-        # Get center y coordinate by averaging y1 and y2
-        center_y = int((y1 + y2) / 2)
-
-        print(colored(f"\n\tmoveToThenClick: Clicking on {center_x=},{center_y=}", "yellow"))
-        pyautogui.click(x=center_x, y=center_y)
-
 
 def list_input_devices():
     p = pyaudio.PyAudio()
@@ -294,6 +116,8 @@ class StreamLoop:
         self.output_stream = None
         self.tts = tts
         self.audio_input = audio_input
+        self.last_screen_width = 0
+        self.last_screen_height = 0
 
     async def convert_text_to_audio(self, text):
         """Convert text to audio using macOS say command directly to WAV"""
@@ -433,8 +257,11 @@ class StreamLoop:
                 msg = await self.out_queue.get()
 
                 if self.debug:
-                    print(f"\t\tSending {msg['mime_type']=} {msg['source']=}")
-                msg.pop("source") # don't send to the API
+                    print(f"\t\tSending {msg=}")
+
+                if "source" in msg:
+                    msg.pop("source") # don't send to the API
+                    
                 await self.session.send(input=msg)
             except Exception as e:
                 print(f"Error in send_realtime: {e}")
@@ -489,27 +316,34 @@ class StreamLoop:
                             print(f"\n{ASSISTANT_PROMPT} ", end="", flush=True)
                             has_introed = True
                         print(text, end="", flush=True)
-                    
-                    # Receive a Tool Call
-                    elif ( response.server_content 
-                        and response.server_content.model_turn 
-                        and response.server_content.model_turn.parts 
-                        ): # could be cleaner!
-                        code_blocks = []
-                        for part in response.server_content.model_turn.parts:
-                            if part.executable_code and part.executable_code.code:
-                                code_blocks.append(part.executable_code.code)
+                    elif ( response.tool_call
+                          and response.tool_call.function_calls):
+                        func_run = SyncFunctionRunner({
+                            "last_screen_width": self.last_screen_width,
+                            "last_screen_height": self.last_screen_height,
+                            "last_screen_path" : "last_screen.jpg"
+                        })
+                        tool_responses = func_run.exec(response.tool_call.function_calls)
+                        for tool_response in tool_responses:
+                            await self.out_queue.put(tool_response)
 
-                        if len(code_blocks) > 0:
-                            func_run = SyncFunctionRunner({
-                                "last_screen_width": self.last_screen_width,
-                                "last_screen_height": self.last_screen_height,
-                                "last_screen_path" : "last_screen.jpg"
-                            })
-                            try:
-                                func_run.exec(code_blocks)
-                            except Exception as e:
-                                print(f"Error in function execution: {e}")
+                    # Receive a Tool Call
+                    # elif ( response.server_content 
+                    #     and response.server_content.model_turn 
+                    #     and response.server_content.model_turn.parts 
+                    #     ): # could be cleaner!
+                    #     code_blocks = []
+                    #     for part in response.server_content.model_turn.parts:
+                    #         if part.executable_code and part.executable_code.code:
+                    #             code_blocks.append(part.executable_code.code)
+
+                    #     if len(code_blocks) > 0:
+                    #         func_run = SyncFunctionRunner({
+                    #             "last_screen_width": self.last_screen_width,
+                    #             "last_screen_height": self.last_screen_height,
+                    #             "last_screen_path" : "last_screen.jpg"
+                    #         })
+                    #         func_run.exec(code_blocks)
 
                 
                 # Process complete response
@@ -669,10 +503,10 @@ if __name__ == "__main__":
         response_modalities=[output],
         system_instruction=types.Content(
             parts=[
-                types.Part(text="You are a helpful desktop assistant AI."),
-                types.Part(text="When asked to draw bounding boxes, always use box2d formats for x1,y1 and x2,2."),
-                types.Part(text="Do not ask the user for coordinates."),
-                types.Part(text="Do not apologize for making mistakes unless you are told you made a mistake. Assuming the bounding box was drawn successfully."),
+                types.Part(text="You are a helpful desktop assistant AI that uses tools."),
+                # types.Part(text="When asked to draw bounding boxes, always use box2d formats for x1,y1 and x2,2."),
+                # types.Part(text="Do not ask the user for coordinates."),
+                # types.Part(text="Do not apologize for making mistakes unless you are told you made a mistake. Assuming the bounding box was drawn successfully."),
                 # types.Part(text="You always respond in audio or text, but when you need to think about something, you call the print_on_screen tool with just the response you need."),
                 # types.Part(text="If you are able to click on things in the screen, you can use that tool."),
                 # types.Part(text="If you cannot find the appropriate tool, respond to the user as if you do not have tool use enabled at all."),
@@ -683,8 +517,8 @@ if __name__ == "__main__":
 
     tool_list_str = ""
     if args.tools:
-        config.tools = [ tool ]
-        tool_list_str = ", ".join([tool.name for tool in tool.function_declarations])
+        config.tools = tool_list
+        
 
     print(f"Configuration: \n\t{args.tools=}\n\t{args.output=}\n\t{args.inputs=}\n\t{tool_list_str=}")
     main = StreamLoop(config=config, inputs=args.inputs, tts=args.output == "text_tts", debug=args.debug)
